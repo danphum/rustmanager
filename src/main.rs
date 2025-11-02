@@ -132,4 +132,5 @@ impl Application for SystemMonitor {
     fn subscription(&self) -> Subscription<Self::Message> {
         iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick)
     }
+    //nigga
 }
