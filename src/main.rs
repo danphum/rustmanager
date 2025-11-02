@@ -1,4 +1,3 @@
-
 use iced::{
     Alignment, Application, Command, Element, Length, Settings, Subscription,
     executor,
@@ -6,6 +5,7 @@ use iced::{
 };
 use std::time::Duration;
 use sysinfo::{CpuExt, ProcessExt, System, SystemExt};
+
 pub fn main() -> iced::Result {
     SystemMonitor::run(Settings::default())
 }
@@ -32,7 +32,7 @@ impl Application for SystemMonitor {
         system.refresh_all();
 
         let cpu_usage = system.global_cpu_info().cpu_usage();
-        let memory_usage_mb = system.used_memory() as f64 / 1024.0;
+        let memory_usage_mb = system.used_memory() as f64 / 100000.0;
 
         (
             SystemMonitor {
@@ -51,16 +51,19 @@ impl Application for SystemMonitor {
     fn update(&mut self, _msg: Self::Message) -> Command<Self::Message> {
         self.system.refresh_all();
         self.cpu_usage = self.system.global_cpu_info().cpu_usage();
-        self.memory_usage_mb = self.system.used_memory() as f64 / 1024.0;
+        self.memory_usage_mb = self.system.used_memory() as f64 / 1000000.0;
         Command::none()
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
+        let cpu_count = self.system.cpus().len() as f32;
+
         let header_info = Text::new(format!(
             "CPU Usage: {:.2}% | Memory Usage: {:.2} MB",
             self.cpu_usage, self.memory_usage_mb
         ))
         .size(22);
+
         let header_row = Row::new()
             .push(Text::new("Process").width(Length::FillPortion(4)).size(18))
             .push(Text::new("CPU %").width(Length::FillPortion(1)).size(18))
@@ -70,15 +73,16 @@ impl Application for SystemMonitor {
                     .size(18),
             )
             .align_items(Alignment::Center);
+
         let mut processes: Vec<_> = self.system.processes().values().collect();
         processes.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap());
 
         let mut rows = Column::new().spacing(0).align_items(Alignment::Start);
 
-        for (_i, process) in processes.iter().take(30).enumerate() {
+        for process in processes.iter().take(30) {
             let name = process.name();
-            let cpu = process.cpu_usage();
-            let mem_mb = process.memory() as f64 / 1024.0;
+            let cpu = process.cpu_usage() / cpu_count;
+            let mem_mb = process.memory() as f64 / 1000000.0;
 
             let row_content = Row::new()
                 .push(
@@ -97,8 +101,8 @@ impl Application for SystemMonitor {
                         .size(16),
                 )
                 .align_items(Alignment::Center);
-            let row_container = Container::new(row_content)
-                .padding([6, 8]);
+
+            let row_container = Container::new(row_content).padding([6, 8]);
             rows = rows.push(row_container);
         }
 
