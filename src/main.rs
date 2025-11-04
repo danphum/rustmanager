@@ -8,6 +8,8 @@ use iced::widget::canvas::{Canvas, Stroke, Frame, Path};
 use sysinfo::{CpuExt, System, SystemExt, ProcessExt, Pid};
 use std::time::Duration;
 
+// --- THEME DEFINITIONS ---
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Theme { Light, Dark }
 
@@ -40,6 +42,8 @@ impl Theme {
     }
 }
 
+// --- STYLING IMPLEMENTATIONS ---
+
 struct CustomContainerStyle(Theme);
 impl container::StyleSheet for CustomContainerStyle {
     type Style = iced::Theme;
@@ -59,6 +63,8 @@ impl container::StyleSheet for RowContainerStyle {
         container::Appearance { background: Some(self.0.into()), ..Default::default() }
     }
 }
+
+// --- MAIN STRUCTS AND ENUMS ---
 
 pub fn main() -> iced::Result {
     SystemMonitor::run(Settings::default())
@@ -85,6 +91,129 @@ enum Message {
     ThemeChanged(Theme),
     EndTask(Pid),
 }
+
+// --- GRAPH STRUCTS ---
+
+struct CpuGraph {
+    history: Vec<f32>,
+    current: f32,
+    theme: Theme,
+}
+
+impl<Message> canvas::Program<Message> for CpuGraph {
+    type State = ();
+    fn draw(&self, _: &Self::State, renderer: &iced::Renderer, _: &iced::Theme, bounds: iced::Rectangle, _: iced::mouse::Cursor)
+        -> Vec<canvas::Geometry> {
+        let palette = self.theme.palette();
+        let mut frame = Frame::new(renderer, bounds.size());
+        let w = bounds.width;
+        let h = bounds.height;
+        let top_offset = 30.0;
+        let bottom_margin = 1.0; 
+        let chart_height = h - top_offset - bottom_margin;
+        let len = (self.history.len().max(1)) as f32;
+        let step = w / len;
+        
+        // Draw the outer border
+        frame.stroke(
+            &Path::rectangle([0.0, 0.0].into(), bounds.size()),
+            Stroke::default().with_width(1.0).with_color(palette.line_separator),
+        );
+        
+        // Draw the baseline (X-Axis) at the bottom of the graph area
+        frame.stroke(
+            &Path::line(
+                [0.0, h - bottom_margin].into(), 
+                [w, h - bottom_margin].into()
+            ),
+            Stroke::default().with_width(1.0).with_color(palette.line_separator),
+        );
+        
+        frame.fill_text(canvas::Text {
+            content: format!("CPU: {:.2}%", self.current),
+            position: [10.0, 20.0].into(),
+            size: iced::Pixels(16.0),
+            color: palette.foreground,
+            ..Default::default()
+        });
+        
+        // Draw the CPU usage line
+        let path = Path::new(|b| {
+            for (i, v) in self.history.iter().enumerate() {
+                let x = i as f32 * step;
+                // Vertical calculation: y = top_offset + (chart_height - (value / max_scale * chart_height))
+                // Max scale for CPU is 100.0
+                let y = top_offset + (chart_height - (v / 100.0 * chart_height));
+                
+                if i == 0 { b.move_to([x, y].into()); } else { b.line_to([x, y].into()); }
+            }
+        });
+        frame.stroke(&path, Stroke::default().with_width(2.0).with_color(palette.accent));
+        vec![frame.into_geometry()]
+    }
+}
+
+struct MemGraph {
+    history: Vec<f32>,
+    current: f32,
+    theme: Theme,
+}
+
+impl<Message> canvas::Program<Message> for MemGraph {
+    type State = ();
+    fn draw(&self, _: &Self::State, renderer: &iced::Renderer, _: &iced::Theme, bounds: iced::Rectangle, _: iced::mouse::Cursor)
+        -> Vec<canvas::Geometry> {
+        let palette = self.theme.palette();
+        let mut frame = Frame::new(renderer, bounds.size());
+        let w = bounds.width;
+        let h = bounds.height;
+        let top_offset = 30.0;
+        let bottom_margin = 1.0; 
+        let chart_height = h - top_offset - bottom_margin;
+        let max_val = self.history.iter().cloned().fold(1.0_f32, f32::max);
+        let len = (self.history.len().max(1)) as f32;
+        let step = w / len;
+        
+        // Draw the outer border
+        frame.stroke(
+            &Path::rectangle([0.0, 0.0].into(), bounds.size()),
+            Stroke::default().with_width(1.0).with_color(palette.line_separator),
+        );
+        
+        // Draw the baseline (X-Axis) at the bottom of the graph area
+        frame.stroke(
+            &Path::line(
+                [0.0, h - bottom_margin].into(), 
+                [w, h - bottom_margin].into()
+            ),
+            Stroke::default().with_width(1.0).with_color(palette.line_separator),
+        );
+        
+        // --- MODIFIED: Removed Max Scale from title content ---
+        frame.fill_text(canvas::Text {
+            content: format!("Memory: {:.2} MB", self.current),
+            position: [10.0, 20.0].into(),
+            size: iced::Pixels(16.0),
+            color: palette.foreground,
+            ..Default::default()
+        });
+        
+        // Draw the Memory usage line
+        let path = Path::new(|b| {
+            for (i, v) in self.history.iter().enumerate() {
+                let x = i as f32 * step;
+                // Vertical calculation: y = top_offset + (chart_height - (value / max_scale * chart_height))
+                let y = top_offset + (chart_height - (v / max_val * chart_height));
+                
+                if i == 0 { b.move_to([x, y].into()); } else { b.line_to([x, y].into()); }
+            }
+        });
+        frame.stroke(&path, Stroke::default().with_width(2.0).with_color(palette.accent));
+        vec![frame.into_geometry()]
+    }
+}
+
+// --- APPLICATION IMPLEMENTATION ---
 
 impl Application for SystemMonitor {
     type Executor = executor::Default;
@@ -139,6 +268,8 @@ impl Application for SystemMonitor {
     }
 }
 
+// --- VIEW METHODS ---
+
 impl SystemMonitor {
     fn main_view(&self) -> Element<Message> {
         let palette = self.current_theme.palette();
@@ -161,6 +292,22 @@ impl SystemMonitor {
 
         let mut rows = Column::new().spacing(0);
         let [r, g, b, _] = palette.header_bg.into_rgba8();
+        
+        // Add Header Row
+        let header_row = Row::new()
+            .push(Text::new("Action").width(Length::Shrink))
+            .push(Text::new("Process Name").width(Length::FillPortion(3)))
+            .push(Text::new("CPU (%)").width(Length::FillPortion(1)))
+            .push(Text::new("Memory (MB)").width(Length::FillPortion(2)))
+            .spacing(10)
+            .align_items(Alignment::Center);
+        rows = rows.push(
+            Container::new(header_row)
+            .style(iced::theme::Container::Custom(Box::new(RowContainerStyle(palette.header_bg))))
+            .padding(5)
+        );
+        
+        // Add Process Rows
         for (i, process) in processes.iter().take(30).enumerate() {
             let row = Row::new()
                 .push(Button::new(Text::new("End")).on_press(Message::EndTask(process.pid())).width(Length::Shrink))
@@ -169,10 +316,16 @@ impl SystemMonitor {
                 .push(Text::new(format!("{:.2}", process.memory() as f64 / 1000000.0)).width(Length::FillPortion(2)))
                 .spacing(10)
                 .align_items(Alignment::Center);
+            
             let bg = if i % 2 == 0 {
-                Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 0.3)
+                Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 0.1) // Slightly lighter background
             } else { Color::TRANSPARENT };
-            rows = rows.push(Container::new(row).style(iced::theme::Container::Custom(Box::new(RowContainerStyle(bg)))));
+            
+            rows = rows.push(
+                Container::new(row)
+                .style(iced::theme::Container::Custom(Box::new(RowContainerStyle(bg))))
+                .padding(5)
+            );
         }
 
         Container::new(
@@ -204,103 +357,26 @@ impl SystemMonitor {
             theme: self.current_theme,
         }).width(Length::Fill).height(Length::Fixed(220.0));
 
-        let back = Button::new(Text::new("Back").style(palette.foreground)).on_press(Message::BackToMain);
+        let back = Button::new(Text::new("Back")).on_press(Message::BackToMain);
 
         Container::new(
             Column::new()
-                .push(Text::new("CPU Usage Graph").style(palette.accent))
+                .spacing(20) 
+                .align_items(Alignment::Center) 
+                .push(Text::new("CPU Usage Graph").size(20).style(palette.accent))
                 .push(cpu_graph)
-                .push(Text::new("Memory Usage Graph").style(palette.accent))
+                .push(Text::new("Memory Usage Graph").size(20).style(palette.accent))
                 .push(mem_graph)
-                .push(Container::new(back).center_x()
-                .center_y()
-            )
+                .push(
+                    Container::new(back)
+                        .width(Length::Shrink)
+                        .padding(10)
+                )
         )
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(20)
         .style(iced::theme::Container::Custom(Box::new(CustomContainerStyle(self.current_theme))))
         .into()
-    }
-}
-
-struct CpuGraph {
-    history: Vec<f32>,
-    current: f32,
-    theme: Theme,
-}
-
-impl<Message> canvas::Program<Message> for CpuGraph {
-    type State = ();
-    fn draw(&self, _: &Self::State, renderer: &iced::Renderer, _: &iced::Theme, bounds: iced::Rectangle, _: iced::mouse::Cursor)
-        -> Vec<canvas::Geometry> {
-        let palette = self.theme.palette();
-        let mut frame = Frame::new(renderer, bounds.size());
-        let w = bounds.width;
-        let h = bounds.height;
-        let top_offset = 30.0;
-        let len = (self.history.len().max(1)) as f32;
-        let step = w / len;
-        frame.stroke(
-            &Path::rectangle([0.0, 0.0].into(), bounds.size()),
-            Stroke::default().with_width(1.0).with_color(palette.line_separator),
-        );
-        frame.fill_text(canvas::Text {
-            content: format!("CPU: {:.2}%", self.current),
-            position: [10.0, 20.0].into(),
-            size: iced::Pixels(16.0),
-            color: palette.foreground,
-            ..Default::default()
-        });
-        let path = Path::new(|b| {
-            for (i, v) in self.history.iter().enumerate() {
-                let x = i as f32 * step;
-                let y = top_offset + (h - top_offset - (v / 100.0 * (h - top_offset)));
-                if i == 0 { b.move_to([x, y].into()); } else { b.line_to([x, y].into()); }
-            }
-        });
-        frame.stroke(&path, Stroke::default().with_width(2.0).with_color(palette.accent));
-        vec![frame.into_geometry()]
-    }
-}
-
-struct MemGraph {
-    history: Vec<f32>,
-    current: f32,
-    theme: Theme,
-}
-
-impl<Message> canvas::Program<Message> for MemGraph {
-    type State = ();
-    fn draw(&self, _: &Self::State, renderer: &iced::Renderer, _: &iced::Theme, bounds: iced::Rectangle, _: iced::mouse::Cursor)
-        -> Vec<canvas::Geometry> {
-        let palette = self.theme.palette();
-        let mut frame = Frame::new(renderer, bounds.size());
-        let w = bounds.width;
-        let h = bounds.height;
-        let top_offset = 30.0;
-        let max_val = self.history.iter().cloned().fold(1.0_f32, f32::max);
-        let len = (self.history.len().max(1)) as f32;
-        let step = w / len;
-        frame.stroke(
-            &Path::rectangle([0.0, 0.0].into(), bounds.size()),
-            Stroke::default().with_width(1.0).with_color(palette.line_separator),
-        );
-        frame.fill_text(canvas::Text {
-            content: format!("Memory: {:.2} MB", self.current),
-            position: [10.0, 20.0].into(),
-            size: iced::Pixels(16.0),
-            color: palette.foreground,
-            ..Default::default()
-        });
-        let path = Path::new(|b| {
-            for (i, v) in self.history.iter().enumerate() {
-                let x = i as f32 * step;
-                let y = top_offset + (h - top_offset - (v / max_val * (h - top_offset)));
-                if i == 0 { b.move_to([x, y].into()); } else { b.line_to([x, y].into()); }
-            }
-        });
-        frame.stroke(&path, Stroke::default().with_width(2.0).with_color(palette.accent));
-        vec![frame.into_geometry()]
     }
 }
