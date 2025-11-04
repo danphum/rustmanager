@@ -1,5 +1,5 @@
 use iced::{
-    Alignment, Application, Command, Element, Length, Settings, Subscription, Color, Border,
+    Alignment, Application, Command, Element, Length, Settings, Subscription, Color,
     executor,
     widget::{Column, Container, Row, Scrollable, Text, Button, canvas, radio},
     widget::container,
@@ -52,20 +52,6 @@ impl container::StyleSheet for CustomContainerStyle {
         }
     }
 }
-
-struct HeaderContainerStyle(Theme);
-impl container::StyleSheet for HeaderContainerStyle {
-    type Style = iced::Theme;
-    fn appearance(&self, _style: &Self::Style) -> container::Appearance {
-        let palette = self.0.palette();
-        container::Appearance {
-            background: Some(palette.header_bg.into()),
-            border: Border::with_radius(4.0),
-            ..Default::default()
-        }
-    }
-}
-
 struct RowContainerStyle(Color);
 impl container::StyleSheet for RowContainerStyle {
     type Style = iced::Theme;
