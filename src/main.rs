@@ -8,8 +8,6 @@ use iced::widget::canvas::{Canvas, Stroke, Frame, Path};
 use sysinfo::{CpuExt, System, SystemExt, ProcessExt, Pid};
 use std::time::Duration;
 
-// --- THEME DEFINITIONS ---
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Theme { Light, Dark }
 
@@ -42,8 +40,6 @@ impl Theme {
     }
 }
 
-// --- STYLING IMPLEMENTATIONS ---
-
 struct CustomContainerStyle(Theme);
 impl container::StyleSheet for CustomContainerStyle {
     type Style = iced::Theme;
@@ -63,8 +59,6 @@ impl container::StyleSheet for RowContainerStyle {
         container::Appearance { background: Some(self.0.into()), ..Default::default() }
     }
 }
-
-// --- MAIN STRUCTS AND ENUMS ---
 
 pub fn main() -> iced::Result {
     SystemMonitor::run(Settings::default())
@@ -92,8 +86,6 @@ enum Message {
     EndTask(Pid),
 }
 
-// --- GRAPH STRUCTS ---
-
 struct CpuGraph {
     history: Vec<f32>,
     current: f32,
@@ -114,13 +106,11 @@ impl<Message> canvas::Program<Message> for CpuGraph {
         let len = (self.history.len().max(1)) as f32;
         let step = w / len;
         
-        // Draw the outer border
         frame.stroke(
             &Path::rectangle([0.0, 0.0].into(), bounds.size()),
             Stroke::default().with_width(1.0).with_color(palette.line_separator),
         );
         
-        // Draw the baseline (X-Axis) at the bottom of the graph area
         frame.stroke(
             &Path::line(
                 [0.0, h - bottom_margin].into(), 
@@ -137,12 +127,9 @@ impl<Message> canvas::Program<Message> for CpuGraph {
             ..Default::default()
         });
         
-        // Draw the CPU usage line
         let path = Path::new(|b| {
             for (i, v) in self.history.iter().enumerate() {
                 let x = i as f32 * step;
-                // Vertical calculation: y = top_offset + (chart_height - (value / max_scale * chart_height))
-                // Max scale for CPU is 100.0
                 let y = top_offset + (chart_height - (v / 100.0 * chart_height));
                 
                 if i == 0 { b.move_to([x, y].into()); } else { b.line_to([x, y].into()); }
@@ -174,13 +161,11 @@ impl<Message> canvas::Program<Message> for MemGraph {
         let len = (self.history.len().max(1)) as f32;
         let step = w / len;
         
-        // Draw the outer border
         frame.stroke(
             &Path::rectangle([0.0, 0.0].into(), bounds.size()),
             Stroke::default().with_width(1.0).with_color(palette.line_separator),
         );
         
-        // Draw the baseline (X-Axis) at the bottom of the graph area
         frame.stroke(
             &Path::line(
                 [0.0, h - bottom_margin].into(), 
@@ -189,7 +174,6 @@ impl<Message> canvas::Program<Message> for MemGraph {
             Stroke::default().with_width(1.0).with_color(palette.line_separator),
         );
         
-        // --- MODIFIED: Removed Max Scale from title content ---
         frame.fill_text(canvas::Text {
             content: format!("Memory: {:.2} MB", self.current),
             position: [10.0, 20.0].into(),
@@ -198,11 +182,9 @@ impl<Message> canvas::Program<Message> for MemGraph {
             ..Default::default()
         });
         
-        // Draw the Memory usage line
         let path = Path::new(|b| {
             for (i, v) in self.history.iter().enumerate() {
                 let x = i as f32 * step;
-                // Vertical calculation: y = top_offset + (chart_height - (value / max_scale * chart_height))
                 let y = top_offset + (chart_height - (v / max_val * chart_height));
                 
                 if i == 0 { b.move_to([x, y].into()); } else { b.line_to([x, y].into()); }
@@ -212,8 +194,6 @@ impl<Message> canvas::Program<Message> for MemGraph {
         vec![frame.into_geometry()]
     }
 }
-
-// --- APPLICATION IMPLEMENTATION ---
 
 impl Application for SystemMonitor {
     type Executor = executor::Default;
@@ -268,8 +248,6 @@ impl Application for SystemMonitor {
     }
 }
 
-// --- VIEW METHODS ---
-
 impl SystemMonitor {
     fn main_view(&self) -> Element<Message> {
         let palette = self.current_theme.palette();
@@ -293,7 +271,6 @@ impl SystemMonitor {
         let mut rows = Column::new().spacing(0);
         let [r, g, b, _] = palette.header_bg.into_rgba8();
         
-        // Add Header Row
         let header_row = Row::new()
             .push(Text::new("Action").width(Length::Shrink))
             .push(Text::new("Process Name").width(Length::FillPortion(3)))
@@ -307,7 +284,6 @@ impl SystemMonitor {
             .padding(5)
         );
         
-        // Add Process Rows
         for (i, process) in processes.iter().take(30).enumerate() {
             let row = Row::new()
                 .push(Button::new(Text::new("End")).on_press(Message::EndTask(process.pid())).width(Length::Shrink))
@@ -318,7 +294,7 @@ impl SystemMonitor {
                 .align_items(Alignment::Center);
             
             let bg = if i % 2 == 0 {
-                Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 0.1) // Slightly lighter background
+                Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 0.1)
             } else { Color::TRANSPARENT };
             
             rows = rows.push(
