@@ -7,6 +7,7 @@ use iced::{
 use iced::widget::canvas::{Canvas, Stroke, Frame, Path};
 use sysinfo::{CpuExt, System, SystemExt, ProcessExt, Pid};
 use std::time::Duration;
+use std::fs;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Theme { Light, Dark }
@@ -84,6 +85,7 @@ enum Message {
     BackToMain,
     ThemeChanged(Theme),
     EndTask(Pid),
+    ExportCSV,
 }
 
 struct CpuGraph {
@@ -223,8 +225,10 @@ impl Application for SystemMonitor {
                 self.system.refresh_all();
                 self.cpu_usage = self.system.global_cpu_info().cpu_usage();
                 self.memory_usage_mb = self.system.used_memory() as f64 / 1000000.0;
+                
                 self.cpu_history.push(self.cpu_usage);
                 if self.cpu_history.len() > 100 { self.cpu_history.remove(0); }
+                
                 self.memory_history.push(self.memory_usage_mb as f32);
                 if self.memory_history.len() > 100 { self.memory_history.remove(0); }
             }
@@ -232,6 +236,31 @@ impl Application for SystemMonitor {
             Message::BackToMain => self.screen = Screen::Main,
             Message::ThemeChanged(theme) => self.current_theme = theme,
             Message::EndTask(pid) => { if let Some(p) = self.system.process(pid) { p.kill(); } }
+            Message::ExportCSV => {
+                let mut processes: Vec<_> = self.system.processes().values().collect();
+                processes.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap());
+                
+                let cpu_count = self.system.cpus().len() as f32;
+                let mut csv_data = String::from("Process_Name,Normalized_CPU_Percent,Memory_Usage_MB\n");
+
+                for process in processes.iter() {
+                    let normalized_cpu_usage = process.cpu_usage() / cpu_count;
+                    let mem_mb = process.memory() as f64 / 1000000.0;
+                    let sanitized_name = process.name().replace(",", "."); 
+
+                    csv_data.push_str(&format!(
+                        "{}, {:.2}, {:.2}\n", 
+                        sanitized_name, 
+                        normalized_cpu_usage, 
+                        mem_mb
+                    ));
+                }
+
+                match fs::write("process_snapshot.csv", csv_data) {
+                    Ok(_) => println!("Process snapshot exported successfully to process_snapshot.csv"),
+                    Err(e) => eprintln!("Failed to export process snapshot: {}", e),
+                }
+            }
         }
         Command::none()
     }
@@ -263,13 +292,20 @@ impl SystemMonitor {
             format!("CPU Usage: {:.2}% | Memory: {:.2} MB", self.cpu_usage, self.memory_usage_mb)
         ).style(palette.accent);
 
-        let button = Button::new(Text::new("View CPU & Memory Graphs")).on_press(Message::GoToGraph);
+        let graph_button = Button::new(Text::new("View CPU & Memory Graphs")).on_press(Message::GoToGraph);
+        let export_button = Button::new(Text::new("Export Data (CSV)")).on_press(Message::ExportCSV);
+
+        let controls = Row::new()
+            .push(graph_button)
+            .push(export_button)
+            .spacing(20)
+            .align_items(Alignment::Center);
 
         let mut processes: Vec<_> = self.system.processes().values().collect();
         processes.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap());
 
         let mut rows = Column::new().spacing(0);
-        let [r, g, b, _] = palette.header_bg.into_rgba8();
+        let palette_header = palette.header_bg;
         
         let header_row = Row::new()
             .push(Text::new("Action").width(Length::Shrink))
@@ -280,20 +316,23 @@ impl SystemMonitor {
             .align_items(Alignment::Center);
         rows = rows.push(
             Container::new(header_row)
-            .style(iced::theme::Container::Custom(Box::new(RowContainerStyle(palette.header_bg))))
+            .style(iced::theme::Container::Custom(Box::new(RowContainerStyle(palette_header))))
             .padding(5)
         );
         
         for (i, process) in processes.iter().take(30).enumerate() {
+            let normalized_cpu_usage = process.cpu_usage() / cpu_count;
+
             let row = Row::new()
                 .push(Button::new(Text::new("End")).on_press(Message::EndTask(process.pid())).width(Length::Shrink))
                 .push(Text::new(process.name()).width(Length::FillPortion(3)))
-                .push(Text::new(format!("{:.2}", process.cpu_usage() / cpu_count)).width(Length::FillPortion(1)))
+                .push(Text::new(format!("{:.2}", normalized_cpu_usage)).width(Length::FillPortion(1)))
                 .push(Text::new(format!("{:.2}", process.memory() as f64 / 1000000.0)).width(Length::FillPortion(2)))
                 .spacing(10)
                 .align_items(Alignment::Center);
             
             let bg = if i % 2 == 0 {
+                let [r, g, b, _] = palette_header.into_rgba8();
                 Color::from_rgba(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 0.1)
             } else { Color::TRANSPARENT };
             
@@ -308,7 +347,7 @@ impl SystemMonitor {
             Column::new()
                 .push(theme_selection)
                 .push(header_info)
-                .push(button)
+                .push(controls)
                 .push(Scrollable::new(rows).height(Length::Fill))
                 .spacing(10)
         )
@@ -333,7 +372,11 @@ impl SystemMonitor {
             theme: self.current_theme,
         }).width(Length::Fill).height(Length::Fixed(220.0));
 
-        let back = Button::new(Text::new("Back")).on_press(Message::BackToMain);
+        let back_button = Button::new(Text::new("Back")).on_press(Message::BackToMain);
+        
+        let back_and_export = Row::new()
+            .spacing(20)
+            .push(back_button);
 
         Container::new(
             Column::new()
@@ -344,7 +387,7 @@ impl SystemMonitor {
                 .push(Text::new("Memory Usage Graph").size(20).style(palette.accent))
                 .push(mem_graph)
                 .push(
-                    Container::new(back)
+                    Container::new(back_and_export)
                         .width(Length::Shrink)
                         .padding(10)
                 )
